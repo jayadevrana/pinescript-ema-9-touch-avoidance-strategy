@@ -1,0 +1,143 @@
+//@version=5
+strategy("EMA 9 Touch Avoidance Strategy", overlay=true, process_orders_on_close = true)
+
+// Parameters
+emaLength = input(9)
+priceTolerance = input(0.003, "Candle range")*100 // 0.003% in decimal
+
+// EMA Calculation
+ema9 = ta.ema(close, emaLength)
+plot(ema9, color=color.blue, linewidth=2, title="EMA 9")
+
+buy = high[1] < ema9[1] and close > high[1]
+sell = low[1] > ema9[1] and close < low[1]
+
+
+
+
+Stop = 1//input.float(0.30, title='StopLoss', step=0.1) 
+
+ProfitPerc = 1//input.float(defval=3.0, title='Profit', step=0.1) 
+risk = input(1,"Risk:Reward")
+use_rsik_reward = input(true)
+
+long_short = 0
+long_last = buy and (nz(long_short[1]) == 0 or nz(long_short[1]) == -1)
+short_last = sell and (nz(long_short[1]) == 0 or nz(long_short[1]) == 1)
+long_short := long_last ? 1 : short_last ? -1 : long_short[1]
+
+long_entered = false
+long_entered := long_entered[1]
+
+short_entered = false
+short_entered := short_entered[1]
+
+entry_p1 = close
+
+
+longPrice = ta.valuewhen(buy and not long_entered, entry_p1, 0)
+shortPrice = ta.valuewhen(sell and not short_entered, entry_p1, 0)
+
+longStop = ta.valuewhen(buy and not long_entered, entry_p1, 0) - Stop
+shortStop = ta.valuewhen(sell and not short_entered, entry_p1, 0) + Stop
+longTake = longPrice + ProfitPerc
+shortTake = shortPrice - ProfitPerc
+
+//plot(l ?longTake:na)
+//plot(s ? shortTake:na)
+
+
+
+use_sl_tp_percentage = false//input(false)
+if use_sl_tp_percentage
+    longStop := longPrice *(1- Stop/100)
+    shortStop := shortPrice *(1+ Stop/100)
+    longTake := longPrice *(1+ ProfitPerc/100)
+    shortTake := shortPrice *(1- ProfitPerc/100)
+if use_rsik_reward
+    longStop := ta.valuewhen(buy and not long_entered,low[1],0)    //longPrice * (1 - Stop)
+    shortStop := ta.valuewhen(sell and not short_entered,high[1],0)//shortPrice * (1 + Stop)
+    longTake := longPrice + (longPrice - longStop)*risk//* (1 + ProfitPerc)
+    shortTake := shortPrice - (shortStop - shortPrice)*risk//* (1 - ProfitPerc)
+
+longBar11 = ta.barssince(long_last)
+longBar21 = longBar11 >= 1 ? true : false
+shortBar11 = ta.barssince(short_last)
+shortBar21 = shortBar11 >= 1 ? true : false
+
+longSLhit = long_short == 1 and longBar21 and low < longStop
+
+
+shortSLhit = long_short == -1 and shortBar21 and high > shortStop
+
+
+
+//plotshape(shortSLhit and not(buy and not long_entered and short_entered), style=shape.labeldown, location=location.abovebar, color=color.new(color.gray, 0), size=size.tiny, title='Stop Loss', text='Short SL', textcolor=color.new(color.white, 0))
+
+
+
+
+longTPhit = long_short == 1 and longBar21 and high > longTake
+
+shortTPhit = long_short == -1 and shortBar21 and low < shortTake
+
+long_short := (long_short == 1 or long_short == 0) and longBar21 and (longSLhit or longTPhit) ? 0 : (long_short == -1 or long_short == 0) and shortBar21 and (shortSLhit or shortTPhit) ? 0 : long_short
+
+//stp_hit = shortTPhit and count <= nt
+
+plotshape(buy and not long_entered, color = color.green , style = shape.labelup , text = "Buy" , textcolor = color.white , location = location.belowbar)
+plotshape(sell and not short_entered, color = color.red , style = shape.labeldown , text = "Sell" , textcolor = color.white , location = location.abovebar)
+
+
+
+
+plotshape(longTPhit, style=shape.labeldown, location=location.abovebar, color=color.new(color.navy, 0), size=size.tiny, title='Target', text='Long TP', textcolor=color.new(color.white, 0))
+plotshape(shortTPhit, style=shape.labelup, location=location.belowbar, color=color.new(color.navy, 0), size=size.tiny, title='Target', text='Short TP', textcolor=color.new(color.white, 0))
+plotshape(longSLhit, style=shape.labelup, location=location.belowbar, color=color.new(color.gray, 0), size=size.tiny, title='Stop Loss', text='Long SL', textcolor=color.new(color.white, 0))
+plotshape(shortSLhit, style=shape.labeldown, location=location.abovebar, color=color.new(color.gray, 0), size=size.tiny, title='Stop Loss', text='Short SL', textcolor=color.new(color.white, 0))
+
+
+
+plot(long_short == 1 ? longStop : na, style=plot.style_linebr, color=color.new(color.red, 0), linewidth=1, title='Long Fixed SL')
+plot(long_short == -1 ? shortStop : na, style=plot.style_linebr, color=color.new(color.red, 0), linewidth=1, title='Short Fixed SL')
+plot(long_short == 1 ? longTake : na, style=plot.style_linebr, color=color.new(color.navy, 0), linewidth=1, title='Long Fixed TP')
+plot(long_short == -1 ? shortTake : na, style=plot.style_linebr, color=color.new(color.navy, 0), linewidth=1, title='Short Fixed TP')
+
+
+
+
+if buy
+    strategy.entry('buy', strategy.long)
+    strategy.exit('Stop', 'buy', limit=longTake, stop=longStop)
+
+if sell
+    strategy.entry('sell', strategy.short)
+    strategy.exit('Stop', 'sell', limit=shortTake, stop=shortStop)
+
+
+
+
+
+
+
+if (buy)  and not long_entered
+    long_entered := true
+    short_entered := false
+    short_entered
+if (sell) and not short_entered
+    short_entered := true
+    long_entered := false
+    long_entered
+
+
+if longSLhit or longTPhit
+    long_entered := false
+    long_entered
+
+if shortSLhit or shortTPhit
+    short_entered := false
+    short_entered
+
+
+
+
